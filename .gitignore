@@ -1,0 +1,136 @@
+# ============================================
+# Python general ignores
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Byte-compiled / optimized / DLL files
+*.pyd
+*.dll
+
+# ============================================
+# Virtual environments
+# ============================================
+# Your venv inside project/
+project/venv/
+
+# Also ignore any generic venv patterns
+venv/
+env/
+.venv/
+ENV/
+
+# pyenv
+.python-version
+
+# ============================================
+# Packaging / build
+# ============================================
+build/
+dist/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+develop-eggs/
+parts/
+sdist/
+var/
+wheels/
+*.whl
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ============================================
+# Testing / Coverage
+# ============================================
+.pytest_cache/
+.coverage
+.coverage.*
+.cache/
+nosetests.xml
+coverage.xml
+htmlcov/
+
+# Tiny training log (your small training pipeline)
+tiny_train_log.json
+
+# ============================================
+# Jupyter
+# ============================================
+.ipynb_checkpoints/
+*.ipynb~
+
+# ============================================
+# MyPy & static analysis
+# ============================================
+.mypy_cache/
+dmypy.json
+.pyre/
+ruff_cache/
+
+# ============================================
+# Logs
+# ============================================
+*.log
+
+# ============================================
+# Project-specific data rules
+# ============================================
+
+# Ignore all big Alpha158 data files
+project/data/*
+
+# BUT keep tiny dataset (your synthetic small data)
+!project/data/tiny/
+!project/data/tiny/features.npy
+!project/data/tiny/labels.npy
+
+# Optional: ignore model checkpoints
+*.pt
+*.pth
+
+# ============================================
+# Paper directory (ignore build artifacts)
+# ============================================
+project/paper/*.pdf
+project/paper/*.aux
+project/paper/*.log
+project/paper/*.out
+project/paper/*.toc
+
+# Keep the actual markdown
+!project/paper/paper.md
+
+# ============================================
+# Editors / IDEs
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ============================================
+# Go language build artifacts
+# ============================================
+run-controller
+*.exe
+*.out
+
+# Go module cache
+go.sum
+go.work
+go.work.sum
+
+# ============================================
+# OS-specific files
+# ============================================
+.DS_Store
+Thumbs.db
+desktop.ini
