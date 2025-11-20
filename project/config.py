@@ -1,19 +1,28 @@
-from dataclasses import dataclass
+class Config:
+    def __init__(self):
+        # Data parameters
+        self.input_dim = 158
+        self.output_dim = 1
+        self.limit_samples = None
+        
+        # Model parameters
+        self.hidden_dim = 64
+        self.num_layers = 2
+        self.dropout = 0.1
+        
+        # Training parameters
+        self.num_epochs = 100
+        self.batch_size = 128
+        self.learning_rate = 0.001
+        self.weight_decay = 1e-5
+        
+        # Device
+        self.device = 'cpu'
+        
+    def set_test_mode(self):
+        """Configure for fast test mode"""
+        self.num_epochs = 1
+        self.batch_size = 32
+        self.limit_samples = 512
 
-@dataclass
-class TrainConfig:
-    input_dim: int = 158          # Alpha158 feature dimension
-    hidden_dim: int = 64          # d_model for Transformer
-    output_dim: int = 1           # Regression target
-    
-    # Transformer-specific parameters
-    nhead: int = 4                # Number of attention heads
-    num_layers: int = 2           # Number of transformer encoder layers
-    dim_feedforward: int = 256    # Dimension of feedforward network
-    dropout: float = 0.1          # Dropout rate
-    
-    # Training parameters
-    lr: float = 1e-3
-    batch_size: int = 32
-    num_epochs: int = 1
-    device: str = "cpu"
+config = Config()
