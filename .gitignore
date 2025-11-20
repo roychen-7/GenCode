@@ -15,8 +15,6 @@ __pycache__/
 # ============================================
 # Virtual environments
 # ============================================
-# Your venv inside project/
-project/venv/
 
 # Also ignore any generic venv patterns
 venv/
