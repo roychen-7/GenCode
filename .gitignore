@@ -78,17 +78,8 @@ ruff_cache/
 # ============================================
 *.log
 
-# ============================================
-# Project-specific data rules
-# ============================================
-
 # Ignore all big Alpha158 data files
-project/data/*
-
-# BUT keep tiny dataset (your synthetic small data)
-!project/data/tiny/
-!project/data/tiny/features.npy
-!project/data/tiny/labels.npy
+data/*
 
 # Optional: ignore model checkpoints
 *.pt
@@ -97,14 +88,14 @@ project/data/*
 # ============================================
 # Paper directory (ignore build artifacts)
 # ============================================
-project/paper/*.pdf
-project/paper/*.aux
-project/paper/*.log
-project/paper/*.out
-project/paper/*.toc
+paper/*.pdf
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.toc
 
 # Keep the actual markdown
-!project/paper/paper.md
+!paper/paper.md
 
 # ============================================
 # Editors / IDEs
