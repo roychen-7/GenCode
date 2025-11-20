@@ -43,18 +43,18 @@ type ClaudeMessageResponse struct {
 
 func isAllowedPath(rel string) bool {
 
-	// allow models/
+	// allow models/**
 	if len(rel) >= 7 && rel[:7] == "models/" {
 		return true
 	}
 
-	// allow config.py
-	if rel == "config.py" {
+	// allow main training script
+	if rel == "train.py" {
 		return true
 	}
 
-	// allow train.py
-	if rel == "train.py" {
+	// allow config
+	if rel == "config.py" {
 		return true
 	}
 
@@ -100,7 +100,10 @@ func collectFiles() (map[string]string, error) {
  **********************/
 
 func runTests() (int, string) {
-	cmd := exec.Command("pytest", "project/tests/test_tiny_train.py", "-q")
+	pythonPath := "project/venv/bin/python"
+
+	cmd := exec.Command(pythonPath, "train.py", "--mode", "test")
+	cmd.Dir = "project" // 🔥 关键点：切换工作目录
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -110,8 +113,8 @@ func runTests() (int, string) {
 
 	exit := 0
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			exit = exitError.ExitCode()
+		if e, ok := err.(*exec.ExitError); ok {
+			exit = e.ExitCode()
 		} else {
 			exit = 1
 		}
