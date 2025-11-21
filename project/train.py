@@ -2,38 +2,63 @@
 import argparse
 import torch
 import torch.optim as optim
-from config import TrainConfig
-from models.mlp import MLP
-from datasets import load_cn_data_full
+import numpy as np
+from config import TrainConfig, ModelConfig
+from model import Stockformer, compute_loss
 
 def train_fast_mode(config):
     """
-    Fast mode: load real cn_data but only run ONE training step.
+    Fast mode: load synthetic data and run ONE training step for testing.
     """
     device = config.device
 
-    model = MLP(config.input_dim, config.hidden_dim, config.output_dim).to(device)
+    # Create model config
+    model_config = ModelConfig(config)
+
+    # Initialize Stockformer model
+    model = Stockformer(model_config).to(device)
     optimizer = optim.Adam(model.parameters(), lr=config.lr)
-    loader = load_cn_data_full(batch_size=config.batch_size, limit_batches=1)
 
     model.train()
-    criterion = torch.nn.MSELoss()
 
-    for x, y in loader:
-        x, y = x.to(device), y.to(device)
-        optimizer.zero_grad()
-        pred = model(x)
-        loss = criterion(pred.squeeze(), y.squeeze())
-        loss.backward()
-        optimizer.step()
-        print("FAST MODE step_loss=", loss.item())
-        break  # Only 1 step
+    # Generate synthetic data for fast testing
+    # Input: [batch_size, T1, N, 362]
+    batch_size = config.batch_size
+    T1 = config.T1
+    T2 = config.T2
+    N = config.num_stocks
 
-    # 写一个 fast_mode_OK 文件，用来让 Go 控制器判断成功
+    # Create random input data
+    x = torch.randn(batch_size, T1, N, 362).to(device)
+
+    # Create random target data
+    # Returns: [batch_size, T2, N]
+    y_true = torch.randn(batch_size, T2, N).to(device)
+    # Trend labels: [batch_size, T2, N] with values 0 or 1
+    y_trend_true = torch.randint(0, 2, (batch_size, T2, N)).to(device)
+
+    # Forward pass
+    optimizer.zero_grad()
+    y_pred, y_pred_low, p_pred, p_pred_low = model(x)
+
+    # Compute loss
+    total_loss, loss_reg, loss_cla = compute_loss(
+        y_pred, y_pred_low, p_pred, p_pred_low,
+        y_true, y_trend_true,
+        lambda_weight=config.lambda_weight
+    )
+
+    # Backward pass
+    total_loss.backward()
+    optimizer.step()
+
+    print(f"FAST MODE - Total Loss: {total_loss.item():.4f}, Reg Loss: {loss_reg.item():.4f}, Cla Loss: {loss_cla.item():.4f}")
+
+    # Write success marker file
     with open("fast_mode_OK.txt", "w") as f:
         f.write("OK\n")
 
-    return loss.item()
+    return total_loss.item()
 
 
 def main_train(config):
