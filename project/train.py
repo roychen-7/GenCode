@@ -63,7 +63,7 @@ def train_fast_mode(config):
 
 def main_train(config):
     """
-    Full training (不用于 Claude 自动测试)
+    Full training (not used for Claude auto-testing)
     """
     raise NotImplementedError("Full training is disabled for auto-iteration.")
 

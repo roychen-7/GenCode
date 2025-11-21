@@ -9,18 +9,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 const (
 	rootDir  = "project"
 	maxIters = 10
 
-	// Your Siray.ai API endpoint + model
-	// anthropicURL = "https://api.siray.ai/v1/messages"
+	// Your customized API settings
 	anthropicURL = "https://api.deerapi.com/v1/messages"
+	modelName    = "claude-sonnet-4-5-20250929"
+	// anthropicURL = "https://api.siray.ai/v1/messages"
 	// modelName    = "anthropic/claude-sonnet-4.5"
-	modelName = "claude-sonnet-4-5-20250929"
-	key       = "sk-JTWR4AtPEeITsqtM8EZ4DVrPc7QRRY31ESlelVAAtkOwo0uA"
 )
 
 // ----- DATA STRUCTURES -----
@@ -50,11 +50,9 @@ func collectFiles() (map[string]string, error) {
 
 	for _, entry := range entries {
 		if entry.IsDir() {
-			// skip ALL folders (example: data/, cn_data/, anything/)
-			continue
+			continue // never read subdirectories
 		}
 
-		// Only process files directly under project/
 		filePath := filepath.Join(rootDir, entry.Name())
 		content, err := ioutil.ReadFile(filePath)
 		if err != nil {
@@ -93,7 +91,7 @@ func runFastTrain() (int, string) {
 
 func askClaude(projectFiles map[string]string, trainOutput string) ([]PatchAction, error) {
 
-	// ----- READ SYSTEM PROMPT FROM system_prompt.txt -----
+	// ----- READ system_prompt.txt -----
 	promptBytes, err := ioutil.ReadFile("system_prompt.txt")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read system_prompt.txt: %v", err)
@@ -104,7 +102,7 @@ func askClaude(projectFiles map[string]string, trainOutput string) ([]PatchActio
 	body := map[string]interface{}{
 		"model":      modelName,
 		"max_tokens": 60000,
-		"system":     systemPrompt, // ← USE EXTERNAL PROMPT
+		"system":     systemPrompt,
 		"messages": []map[string]interface{}{
 			{
 				"role": "user",
@@ -121,7 +119,8 @@ func askClaude(projectFiles map[string]string, trainOutput string) ([]PatchActio
 
 	req, _ := http.NewRequest("POST", anthropicURL, bytes.NewBuffer(jsonBytes))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("ANTHROPIC_AUTH_TOKEN"))
+	// req.Header.Set("Authorization", "Bearer "+key)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -148,12 +147,21 @@ func askClaude(projectFiles map[string]string, trainOutput string) ([]PatchActio
 
 	raw := claude.Content[0].Text
 
+	// ========= CLEAN CODE-BLOCKS (```json … ```) =========
+	clean := strings.TrimSpace(raw)
+	clean = strings.TrimPrefix(clean, "```json")
+	clean = strings.TrimPrefix(clean, "```JSON")
+	clean = strings.TrimPrefix(clean, "```")
+	clean = strings.TrimSuffix(clean, "```")
+	clean = strings.TrimSpace(clean)
+
 	var parsed struct {
 		Actions []PatchAction `json:"actions"`
 	}
 
-	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(clean), &parsed); err != nil {
 		fmt.Println("Claude raw output:\n", raw)
+		fmt.Println("Cleaned output:\n", clean)
 		return nil, fmt.Errorf("Claude did not return valid JSON actions")
 	}
 
@@ -166,10 +174,13 @@ func askClaude(projectFiles map[string]string, trainOutput string) ([]PatchActio
 	return parsed.Actions, nil
 }
 
-// ----- SECURITY: ONLY 3 FILES ALLOWED -----
+// ----- ALLOWED PATHS -----
 
 func isAllowedPath(rel string) bool {
-	return rel == "model.py" || rel == "config.py" || rel == "train.py"
+	return rel == "model.py" ||
+		rel == "config.py" ||
+		rel == "train.py" ||
+		rel == "requirements.txt" // NOW ALLOWED
 }
 
 // ----- APPLY PATCHES -----
@@ -204,7 +215,7 @@ func applyActions(acts []PatchAction) error {
 		}
 	}
 
-	// ----- 自动安装依赖 -----
+	// ----- AUTO INSTALL DEPENDENCIES -----
 	if reqUpdated {
 		fmt.Println("📦 requirements.txt updated. Installing dependencies...")
 
