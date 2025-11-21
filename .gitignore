@@ -79,7 +79,7 @@ ruff_cache/
 *.log
 
 # Ignore all big Alpha158 data files
-data/*
+project/data/*
 
 # Optional: ignore model checkpoints
 *.pt

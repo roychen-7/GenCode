@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/fs"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -18,11 +17,12 @@ import (
 // Config
 // =========================
 const (
-	rootDir  = "."
-	maxIters = 12
+	projectDir = "project"
+	maxIters   = 12
 
-	anthropicURL = "https://codex.claudebuddy.fun/api"
-	modelName    = "anthropic/claude-sonnet-4.5"
+	anthropicURL = "https://api.siray.ai/v1/messages"
+	// anthropicURL = "https://codex.claudebuddy.fun/api/v1/messages"
+	modelName = "anthropic/claude-sonnet-4.5"
 
 	promptFile = "system_prompt.txt"
 )
@@ -41,10 +41,10 @@ type ClaudeMessageResponse struct {
 }
 
 // =========================
-// Allowed paths
+// Allowed paths inside project/
 // =========================
 func isAllowedPath(rel string) bool {
-	if len(rel) >= 7 && rel[:7] == "models/" {
+	if rel == "model.py" {
 		return true
 	}
 	if rel == "train.py" {
@@ -60,34 +60,52 @@ func isAllowedPath(rel string) bool {
 }
 
 // =========================
-// Collect all project files
+// Collect project files ONLY
+// =========================
+// =========================
+// Collect ONLY top-level files inside ./project
 // =========================
 func collectFiles() (map[string]string, error) {
 	files := make(map[string]string)
 
-	err := filepath.Walk(rootDir, func(path string, info fs.FileInfo, err error) error {
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read project directory: %v", err)
+	}
+
+	for _, entry := range entries {
+
+		// ❌ Skip all directories (don't enter subdirectories)
+		if entry.IsDir() {
+			continue
+		}
+
+		// ❌ Optional: skip large files (>200KB)
+		info, err := entry.Info()
+		if err == nil && info.Size() > 200*1024 {
+			fmt.Printf("⚠️ Skipping large file: %s (%d bytes)\n", entry.Name(), info.Size())
+			continue
+		}
+
+		// Correctly read file content
+		path := filepath.Join(projectDir, entry.Name())
+		content, err := os.ReadFile(path)
 		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
+			return nil, fmt.Errorf("Failed to read file %s: %v", entry.Name(), err)
 		}
 
-		rel, _ := filepath.Rel(rootDir, path)
-		content, _ := ioutil.ReadFile(path)
-		files[rel] = string(content)
-		return nil
-	})
+		files[entry.Name()] = string(content)
+	}
 
-	return files, err
+	return files, nil
 }
 
 // =========================
-// Run training test
+// Run training test (cd project/)
 // =========================
 func runTestMode() (int, string) {
 	cmd := exec.Command("venv/bin/python", "train.py", "--mode", "test")
-	cmd.Dir = "."
+	cmd.Dir = projectDir
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -107,17 +125,58 @@ func runTestMode() (int, string) {
 }
 
 // =========================
-// Ask Claude (timeout + logging)
+// Extract JSON from text
+// =========================
+func extractJSON(text string) string {
+	// Try to find JSON between ```json and ``` markers
+	start := bytes.Index([]byte(text), []byte("```json"))
+	if start != -1 {
+		start += 7 // Skip past ```json
+		end := bytes.Index([]byte(text[start:]), []byte("```"))
+		if end != -1 {
+			return text[start : start+end]
+		}
+	}
+
+	// Try to find JSON between ``` and ``` markers
+	start = bytes.Index([]byte(text), []byte("```"))
+	if start != -1 {
+		start += 3 // Skip past ```
+		end := bytes.Index([]byte(text[start:]), []byte("```"))
+		if end != -1 {
+			candidate := text[start : start+end]
+			// Check if it looks like JSON
+			candidate = string(bytes.TrimSpace([]byte(candidate)))
+			if len(candidate) > 0 && (candidate[0] == '{' || candidate[0] == '[') {
+				return string(candidate)
+			}
+		}
+	}
+
+	// Try to find raw JSON (starts with { or [)
+	trimmed := bytes.TrimSpace([]byte(text))
+	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+		return string(trimmed)
+	}
+
+	return ""
+}
+
+// =========================
+// Ask Claude
 // =========================
 func askClaude(files map[string]string, testOutput string) ([]PatchAction, error) {
 
-	prompt, _ := ioutil.ReadFile(promptFile)
+	promptBytes, err := os.ReadFile(promptFile)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read prompt file: %v", err)
+	}
 
 	body := map[string]interface{}{
 		"model":       modelName,
 		"max_tokens":  6000,
 		"temperature": 0,
-		"system":      string(prompt),
+		"system":      string(promptBytes),
 		"messages": []map[string]interface{}{
 			{
 				"role": "user",
@@ -130,14 +189,21 @@ func askClaude(files map[string]string, testOutput string) ([]PatchAction, error
 		},
 	}
 
-	reqBytes, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", anthropicURL, bytes.NewBuffer(reqBytes))
+	reqBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to marshal request: %v", err)
+	}
+	req, err := http.NewRequest("POST", anthropicURL, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return nil, fmt.Errorf("Failed to create request: %v", err)
+	}
+
+	fmt.Println(body)
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", os.Getenv("ANTHROPIC_AUTH_TOKEN"))
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	// Timeout-enabled HTTP client
 	client := &http.Client{
 		Timeout: 180 * time.Second,
 		Transport: &http.Transport{
@@ -159,18 +225,26 @@ func askClaude(files map[string]string, testOutput string) ([]PatchAction, error
 	}
 	defer resp.Body.Close()
 
-	respBytes, _ := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read response: %v", err)
+	}
+
+	// Check HTTP status code
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(respBytes))
+	}
 
 	fmt.Println("\n====== RAW CLAUDE RESPONSE ======")
 	fmt.Println(string(respBytes))
-	fmt.Println("=================================\n")
+	fmt.Println("=================================")
 
 	var msg ClaudeMessageResponse
 	if err := json.Unmarshal(respBytes, &msg); err != nil {
 		return nil, fmt.Errorf("Failed to parse JSON: %v", err)
 	}
 
-	if msg.Content == nil || len(msg.Content) == 0 {
+	if len(msg.Content) == 0 {
 		return nil, fmt.Errorf("Claude returned empty content")
 	}
 
@@ -178,14 +252,24 @@ func askClaude(files map[string]string, testOutput string) ([]PatchAction, error
 
 	fmt.Println("\n====== PARSED TEXT ======")
 	fmt.Println(raw)
-	fmt.Println("==========================\n")
+	fmt.Println("==========================")
+
+	// Extract JSON from response (handle markdown code blocks or plain text)
+	jsonText := extractJSON(raw)
+	if jsonText == "" {
+		return nil, fmt.Errorf("No JSON found in Claude's response")
+	}
 
 	var parsed struct {
 		Actions []PatchAction `json:"actions"`
 	}
 
-	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(jsonText), &parsed); err != nil {
 		return nil, fmt.Errorf("Failed parsing actions: %v", err)
+	}
+
+	if len(parsed.Actions) == 0 {
+		return nil, fmt.Errorf("No actions returned by Claude")
 	}
 
 	return parsed.Actions, nil
@@ -197,32 +281,46 @@ func askClaude(files map[string]string, testOutput string) ([]PatchAction, error
 func applyActions(actions []PatchAction) error {
 
 	fmt.Println("\n====== APPLYING ACTIONS ======")
-	pretty, _ := json.MarshalIndent(actions, "", "  ")
-	fmt.Println(string(pretty))
-	fmt.Println("===============================\n")
+	pretty, err := json.MarshalIndent(actions, "", "  ")
+	if err != nil {
+		fmt.Printf("Warning: Failed to format actions: %v\n", err)
+	} else {
+		fmt.Println(string(pretty))
+	}
+	fmt.Println("===============================")
 
 	for _, a := range actions {
-
 		switch a.Op {
 
 		case "write":
 			if !isAllowedPath(a.File) {
 				return fmt.Errorf("Forbidden write: %s", a.File)
 			}
-			os.MkdirAll(filepath.Dir(a.File), 0755)
-			ioutil.WriteFile(a.File, []byte(a.Content), 0644)
+			dst := filepath.Join(projectDir, a.File)
+			if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+				return fmt.Errorf("Failed to create directory for %s: %v", a.File, err)
+			}
+			if err := os.WriteFile(dst, []byte(a.Content), 0644); err != nil {
+				return fmt.Errorf("Failed to write file %s: %v", a.File, err)
+			}
 
 		case "mkdir":
 			if !isAllowedPath(a.Dir) {
 				return fmt.Errorf("Forbidden mkdir: %s", a.Dir)
 			}
-			os.MkdirAll(a.Dir, 0755)
+			dst := filepath.Join(projectDir, a.Dir)
+			if err := os.MkdirAll(dst, 0755); err != nil {
+				return fmt.Errorf("Failed to create directory %s: %v", a.Dir, err)
+			}
 
 		case "delete":
 			if !isAllowedPath(a.File) {
 				return fmt.Errorf("Forbidden delete: %s", a.File)
 			}
-			os.Remove(a.File)
+			dst := filepath.Join(projectDir, a.File)
+			if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("Failed to delete file %s: %v", a.File, err)
+			}
 		}
 	}
 
@@ -234,6 +332,7 @@ func applyActions(actions []PatchAction) error {
 // =========================
 func installRequirements() error {
 	cmd := exec.Command("venv/bin/pip", "install", "-r", "requirements.txt")
+	cmd.Dir = projectDir
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -250,43 +349,47 @@ func installRequirements() error {
 // JSON helper
 // =========================
 func toJSON(v interface{}) string {
-	b, _ := json.MarshalIndent(v, "", "  ")
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("Error marshaling JSON: %v", err)
+	}
 	return string(b)
 }
 
 // =========================
-// MAIN LOOP — FIX FIRST, TEST LATER
+// MAIN LOOP
 // =========================
 func main() {
 
-	testOutput := "" // first round no test
+	testOutput := ""
 
 	for i := 1; i <= maxIters; i++ {
 
 		fmt.Printf("\n====== ITERATION %d ======\n", i)
 
-		files, _ := collectFiles()
+		files, err := collectFiles()
 
-		// 1) Ask Claude FIRST
+		if err != nil {
+			fmt.Println("Collect files error:", err)
+			return
+		}
+
 		actions, err := askClaude(files, testOutput)
 		if err != nil {
 			fmt.Println("Claude error:", err)
 			return
 		}
 
-		// 2) Apply fixes
 		if err := applyActions(actions); err != nil {
 			fmt.Println("Apply error:", err)
 			return
 		}
 
-		// 3) pip install
 		if err := installRequirements(); err != nil {
 			fmt.Println("pip install error:", err)
 			return
 		}
 
-		// 4) Now run test
 		exitCode, out := runTestMode()
 		testOutput = out
 
