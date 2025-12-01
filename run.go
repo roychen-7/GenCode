@@ -20,7 +20,7 @@ const (
 	// Your customized API settings
 	anthropicURL = "https://api.deerapi.com/v1/messages"
 	modelName    = "claude-sonnet-4-5-20250929"
-	key          = "sk-nqx4XFggbOUNlHo0wlloGewZBsT4UWRk7lyaOAdQCBZyAnKF"
+	key          = ""
 	// anthropicURL = "https://api.siray.ai/v1/messages"
 	// modelName    = "anthropic/claude-sonnet-4.5"
 )
@@ -96,7 +96,14 @@ func runFastTrain() (int, string) {
 		}
 	}
 
-	return exitCode, out.String()
+	output := out.String()
+
+	// Print output to console
+	fmt.Println("\n===== TRAIN.PY OUTPUT =====")
+	fmt.Println(output)
+	fmt.Println("===========================\n")
+
+	return exitCode, output
 }
 
 // ----- JSON EXTRACTION -----
@@ -306,6 +313,40 @@ func analyzePaperWithClaude() (*PaperAnalysisResult, error) {
 		return nil, fmt.Errorf("failed to extract valid JSON: %v", err)
 	}
 
+	// First, check if clean is a general JSON object
+	var testObj interface{}
+	if err := json.Unmarshal([]byte(clean), &testObj); err != nil {
+		fmt.Println("Claude raw output:\n", raw)
+		fmt.Println("Extracted JSON:\n", clean)
+		return nil, fmt.Errorf("Claude did not return valid JSON for paper analysis")
+	}
+
+	// If it's a JSON object (map), write it directly to config_paper.json
+	if _, isMap := testObj.(map[string]interface{}); isMap {
+		configPath := filepath.Join(rootDir, "config_paper.json")
+
+		// Pretty print the JSON
+		prettyJSON, err := json.MarshalIndent(testObj, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal JSON: %v", err)
+		}
+
+		if err := ioutil.WriteFile(configPath, prettyJSON, 0644); err != nil {
+			return nil, fmt.Errorf("failed to write config_paper.json: %v", err)
+		}
+
+		fmt.Println("\n===== GENERATED config_paper.json =====")
+		fmt.Println(string(prettyJSON))
+		fmt.Println("========================================\n")
+
+		// Return a result indicating we wrote the config directly
+		return &PaperAnalysisResult{
+			Features: "written to config_paper.json",
+			Label:    "written to config_paper.json",
+		}, nil
+	}
+
+	// Otherwise, try to parse as PaperAnalysisResult
 	var result PaperAnalysisResult
 	if err := json.Unmarshal([]byte(clean), &result); err != nil {
 		fmt.Println("Claude raw output:\n", raw)
@@ -440,13 +481,18 @@ func main() {
 		fmt.Println("⚠️  Warning: Could not analyze paper.md:", err)
 		fmt.Println("⚠️  Continuing with default config_paper.json (empty)")
 	} else {
-		fmt.Printf("✓ Extracted features: %v\n", analysis.Features)
-		fmt.Printf("✓ Extracted label: %s\n", analysis.Label)
-
-		if err := generateConfigPaper(analysis); err != nil {
-			fmt.Println("⚠️  Warning: Could not generate config_paper.json:", err)
+		// If analysis was written directly to config_paper.json, skip generateConfigPaper
+		if analysis.Features == "written to config_paper.json" && analysis.Label == "written to config_paper.json" {
+			fmt.Println("✓ config_paper.json written directly from Claude response")
 		} else {
-			fmt.Println("✓ Generated config_paper.json")
+			fmt.Printf("✓ Extracted features: %v\n", analysis.Features)
+			fmt.Printf("✓ Extracted label: %s\n", analysis.Label)
+
+			if err := generateConfigPaper(analysis); err != nil {
+				fmt.Println("⚠️  Warning: Could not generate config_paper.json:", err)
+			} else {
+				fmt.Println("✓ Generated config_paper.json")
+			}
 		}
 	}
 	fmt.Println("================================\n")

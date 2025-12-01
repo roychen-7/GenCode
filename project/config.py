@@ -59,8 +59,10 @@ def merge_dict(default, override):
 # --------------------------
 class FinalConfig:
     def __init__(self):
-        default_cfg = load_json("config_default.json")
-        paper_cfg = load_json("config_paper.json")
+        # Use absolute path based on this script's location
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        default_cfg = load_json(os.path.join(script_dir, "config_default.json"))
+        paper_cfg = load_json(os.path.join(script_dir, "config_paper.json"))
 
         # 1. Verify top-level fields
         for section in ["model", "train", "data"]:

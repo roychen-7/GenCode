@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+import os
 import qlib
 from qlib.data import D
 from qlib.data.dataset import DatasetH
@@ -60,7 +61,9 @@ def load_full_dataset(
     lookback_window=1,
 ):
     # 1. 确保 Qlib 初始化过
-    qlib.init(provider_uri="./data/cn_data", region="cn")
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    data_path = os.path.join(script_dir, "data", "cn_data")
+    qlib.init(provider_uri=data_path, region="cn")
 
     # 2. 生成 PyTorch dataset
     ds = QlibDataset(

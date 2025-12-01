@@ -3,145 +3,175 @@ import torch.nn as nn
 import math
 
 
-class iTransformer(nn.Module):
+class Model(nn.Module):
     """
-    iTransformer: Inverted Transformer for Time Series Forecasting
+    iTransformer implementation based on paper.md.
     
-    From paper: Embeds each time series (variate) as a token, applies attention
-    on variate dimension for multivariate correlations, and feed-forward network
-    on temporal dimension for series representations.
+    Architecture:
+    - Embeds each time series (variate) as a token
+    - Self-attention operates on variate tokens to capture multivariate correlations
+    - Feed-forward network learns series representations
+    - Layer normalization applied on temporal dimension of each variate
     """
     
     def __init__(self, config):
-        super().__init__()
+        super(Model, self).__init__()
         
-        self.lookback_window = config["lookback_window"]
-        self.num_variates = config["num_variates"]
-        self.d_model = config["d_model"]
-        self.num_layers = config["num_layers"]
-        self.num_heads = config["num_heads"]
-        self.d_ff = config["d_ff"]
-        self.dropout = config["dropout"]
-        self.prediction_length = config["prediction_length"]
+        # Extract config parameters
+        self.input_dim = config["input_dim"]  # Number of features per variate
+        self.lookback_window = config["lookback_window"]  # T: lookback length
+        self.pred_window = config["pred_window"]  # S: prediction length
+        self.hidden_dim = config["hidden_dim"]  # D: token dimension
+        self.num_layers = config["num_layers"]  # L: number of transformer blocks
+        self.dropout = config.get("dropout", 0.1)
         
-        # Embedding: project each variate's time series (lookback_window) to d_model
-        self.embedding = nn.Linear(self.lookback_window, self.d_model)
+        # Number of variates N is determined by input_dim
+        # In the iTransformer paradigm, each variate becomes a token
+        self.num_variates = self.input_dim
+        
+        # Embedding: Projects time series (T points) to token dimension D
+        # Input: (N, T) -> Output: (N, D)
+        self.embedding = nn.Sequential(
+            nn.Linear(self.lookback_window, self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(self.dropout)
+        )
         
         # Stack of iTransformer blocks
-        self.layers = nn.ModuleList([
+        self.blocks = nn.ModuleList([
             iTransformerBlock(
-                d_model=self.d_model,
-                num_heads=self.num_heads,
-                d_ff=self.d_ff,
+                hidden_dim=self.hidden_dim,
+                num_heads=8,
                 dropout=self.dropout
             )
             for _ in range(self.num_layers)
         ])
         
-        # Projection: project d_model back to prediction_length
-        self.projection = nn.Linear(self.d_model, self.prediction_length)
-        
+        # Projection: Projects token dimension D back to prediction length S
+        # Input: (N, D) -> Output: (N, S)
+        self.projection = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.pred_window),
+            nn.Dropout(self.dropout)
+        )
+    
     def forward(self, x):
         """
-        Args:
-            x: (batch_size, lookback_window, num_variates)
-        Returns:
-            out: (batch_size, prediction_length, num_variates)
-        """
-        # Transpose: (batch_size, lookback_window, num_variates) -> (batch_size, num_variates, lookback_window)
-        x = x.transpose(1, 2)
+        Forward pass of iTransformer.
         
-        # Embed each variate token: (batch_size, num_variates, lookback_window) -> (batch_size, num_variates, d_model)
-        x = self.embedding(x)
+        Args:
+            x: Input tensor of shape (batch_size, lookback_window, num_variates)
+               Note: Standard format is (B, T, N)
+        
+        Returns:
+            predictions: Tensor of shape (batch_size, pred_window, num_variates)
+                        Note: Standard format is (B, S, N)
+        """
+        batch_size = x.shape[0]
+        
+        # Transpose: (B, T, N) -> (B, N, T)
+        # Each variate's time series becomes a token
+        x = x.transpose(1, 2)  # (B, N, T)
+        
+        # Embedding: (B, N, T) -> (B, N, D)
+        h = self.embedding(x)  # (B, N, D)
         
         # Pass through iTransformer blocks
-        for layer in self.layers:
-            x = layer(x)
+        for block in self.blocks:
+            h = block(h)  # (B, N, D)
         
-        # Project to prediction: (batch_size, num_variates, d_model) -> (batch_size, num_variates, prediction_length)
-        x = self.projection(x)
+        # Projection: (B, N, D) -> (B, N, S)
+        out = self.projection(h)  # (B, N, S)
         
-        # Transpose back: (batch_size, num_variates, prediction_length) -> (batch_size, prediction_length, num_variates)
-        x = x.transpose(1, 2)
+        # Transpose back: (B, N, S) -> (B, S, N)
+        out = out.transpose(1, 2)  # (B, S, N)
         
-        return x
+        return out
 
 
 class iTransformerBlock(nn.Module):
     """
-    Single iTransformer block:
-    - LayerNorm + Multi-head Self-Attention (on variate dimension)
-    - LayerNorm + Feed-Forward Network (on each variate token)
-    
-    From paper: Layer normalization is applied on temporal dimension (series representations),
-    attention captures multivariate correlations, FFN learns series representations.
+    Single iTransformer block consisting of:
+    1. Layer Normalization + Self-Attention on variate tokens
+    2. Layer Normalization + Feed-Forward Network on series representations
     """
     
-    def __init__(self, d_model, num_heads, d_ff, dropout):
-        super().__init__()
+    def __init__(self, hidden_dim, num_heads, dropout=0.1):
+        super(iTransformerBlock, self).__init__()
         
-        self.norm1 = nn.LayerNorm(d_model)
-        self.attn = nn.MultiheadAttention(
-            embed_dim=d_model,
+        self.hidden_dim = hidden_dim
+        self.num_heads = num_heads
+        
+        # Layer normalization for attention (applied on temporal/feature dimension)
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        
+        # Multi-head self-attention on variate tokens
+        self.attention = nn.MultiheadAttention(
+            embed_dim=hidden_dim,
             num_heads=num_heads,
             dropout=dropout,
             batch_first=True
         )
         
-        self.norm2 = nn.LayerNorm(d_model)
+        # Layer normalization for FFN
+        self.norm2 = nn.LayerNorm(hidden_dim)
+        
+        # Feed-forward network for series representations
         self.ffn = nn.Sequential(
-            nn.Linear(d_model, d_ff),
+            nn.Linear(hidden_dim, hidden_dim * 4),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(d_ff, d_model),
+            nn.Linear(hidden_dim * 4, hidden_dim),
             nn.Dropout(dropout)
         )
-        
+    
     def forward(self, x):
         """
+        Forward pass through one iTransformer block.
+        
         Args:
-            x: (batch_size, num_variates, d_model)
+            x: Input tensor of shape (batch_size, num_variates, hidden_dim)
+        
         Returns:
-            x: (batch_size, num_variates, d_model)
+            Output tensor of shape (batch_size, num_variates, hidden_dim)
         """
-        # Self-attention with residual
-        x_norm = self.norm1(x)
-        attn_out, _ = self.attn(x_norm, x_norm, x_norm)
+        # Self-attention with residual connection
+        # Attention operates on variate tokens to capture multivariate correlations
+        normed = self.norm1(x)
+        attn_out, _ = self.attention(normed, normed, normed)
         x = x + attn_out
         
-        # Feed-forward with residual
-        x = x + self.ffn(self.norm2(x))
+        # Feed-forward network with residual connection
+        # FFN operates on series representations of each variate token
+        normed = self.norm2(x)
+        ffn_out = self.ffn(normed)
+        x = x + ffn_out
         
         return x
 
 
-class Model(nn.Module):
-    """
-    Wrapper model matching train.py interface
-    """
-    
-    def __init__(self, config):
-        super().__init__()
-        self.model = iTransformer(config)
-        
-    def forward(self, x):
-        return self.model(x)
-
-
 def compute_loss(predictions, targets):
     """
-    MSE loss for time series forecasting
+    Compute MSE loss between predictions and targets.
     
     Args:
-        predictions: (batch_size, prediction_length, num_variates)
-        targets: (batch_size, num_variates) - next time step
-    Returns:
-        loss: scalar
-    """
-    # Take only the first prediction step to match target
-    pred_first_step = predictions[:, 0, :]
+        predictions: Predicted values of shape (batch_size, pred_window, num_variates)
+        targets: Ground truth values of shape (batch_size, pred_window, num_variates)
+                 or (batch_size, num_variates) for single-step prediction
     
-    # Compute MSE
-    loss = nn.MSELoss()(pred_first_step, targets.squeeze(-1))
+    Returns:
+        loss: Mean squared error loss
+    """
+    # Handle different target shapes
+    if targets.dim() == 2:
+        # Single-step prediction: (B, N) -> (B, 1, N)
+        targets = targets.unsqueeze(1)
+    
+    # Ensure predictions match target shape
+    if predictions.shape[1] != targets.shape[1]:
+        # Take only the first step if multi-step prediction
+        predictions = predictions[:, :targets.shape[1], :]
+    
+    # MSE loss
+    loss = nn.functional.mse_loss(predictions, targets)
     
     return loss

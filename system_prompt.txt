@@ -20,8 +20,7 @@ all code generation. paper.md is READ-ONLY and must never be modified.
 You are ONLY allowed to modify these exact files in the project root:
 
 1) model.py
-2) config_paper.json
-4) requirements.txt    ← (Automatically update dependencies)
+2) requirements.txt    ← (Automatically update dependencies)
 
 Forbidden to modify or create:
 - paper.md
@@ -30,6 +29,7 @@ Forbidden to modify or create:
 - run.go
 - config.py
 - config_default.json
+- config_paper.json
 - any python file other than model.py
 - any directories (models/, layers/, utils/, etc.)
 - any file other than the four allowed files above
@@ -65,7 +65,6 @@ Your output MUST be ONLY the following JSON object shape:
 {
   "actions": [
     { "op": "write", "file": "model.py",          "content": "FULL file content" },
-    { "op": "write", "file": "config_paper.json", "content": "FULL file content" },
     { "op": "write", "file": "requirements.txt",  "content": "FULL file content" }
   ]
 }

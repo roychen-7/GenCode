@@ -1,20 +1,56 @@
-You are analyzing a research paper to extract feature and label information for a financial time series forecasting project.
+You are analyzing a research paper to extract configuration for a financial time series forecasting project.
 
 Please read the paper.md content and extract:
-1. **Features**: What features should be used for the model?
-   - If the paper mentions specific features or feature engineering methods, extract them as a list like ["$close", "$volume", "$open", ...]
-   - If the paper uses alpha158 or similar factor libraries, return "Alpha158"
-   - If no features are specified, default to ["$close"]
 
-2. **Label**: What is the prediction target (label)?
-   - If the paper mentions a specific label formula or prediction target, extract it in Qlib expression format
-   - Common examples: "Ref($close, -1)/$close-1" (next day return), "Ref($close, -5)/$close-1" (5-day return)
-   - If no label is specified, default to "Ref($close, -1)/$close-1"
+1. **Model Configuration**:
+   - Model type (e.g., "transformer", "lstm", "gru")
+   - Architecture parameters (hidden_dim, num_layers, num_heads, ff_dim, dropout, etc.)
+   - Input/output dimensions and windows (lookback_window, pred_window)
 
-Return your response as a JSON object with this exact format:
+2. **Training Configuration**:
+   - Batch size, learning rate, optimizer type
+   - Weight decay, number of epochs
+
+3. **Data Configuration**:
+   - Features: What features should be used?
+     * If specific features mentioned: ["$close", "$volume", "$open", ...]
+     * If alpha158 or similar: "Alpha158"
+     * Default: ["$close"]
+   - Label: Prediction target in Qlib format
+     * Examples: "Ref($close, -1)/$close-1" (next day return)
+     * Default: "Ref($close, -1)/$close-1"
+   - Date ranges if mentioned (start_date, end_date)
+
+Return your response as a JSON object with the same structure as this example:
 {
-  "features": ["$close", "$volume", ...],
-  "label": "Ref($close, -1)/$close-1"
+  "model": {
+    "type": "transformer",
+    "input_dim": 158,
+    "output_dim": 1,
+    "hidden_dim": 128,
+    "num_layers": 3,
+    "num_heads": 4,
+    "ff_dim": 256,
+    "dropout": 0.1,
+    "lookback_window": 20,
+    "pred_window": 1,
+    "n_variates": 158
+  },
+  "train": {
+    "batch_size": 1024,
+    "learning_rate": 0.0005,
+    "optimizer": "adam",
+    "weight_decay": 0.0,
+    "num_epochs": 20
+  },
+  "data": {
+    "features": ["$close"],
+    "label": "Ref($close, -1)/$close-1",
+    "start_date": "2020-01-01",
+    "end_date": "2020-12-31"
+  }
 }
+
+Only include fields that are explicitly mentioned in the paper. Use reasonable defaults for unspecified values.
 
 PAPER CONTENT:
