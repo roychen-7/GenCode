@@ -1,0 +1,20 @@
+You are analyzing a research paper to extract feature and label information for a financial time series forecasting project.
+
+Please read the paper.md content and extract:
+1. **Features**: What features should be used for the model?
+   - If the paper mentions specific features or feature engineering methods, extract them as a list like ["$close", "$volume", "$open", ...]
+   - If the paper uses alpha158 or similar factor libraries, return "Alpha158"
+   - If no features are specified, default to "Alpha158"
+
+2. **Label**: What is the prediction target (label)?
+   - If the paper mentions a specific label formula or prediction target, extract it in Qlib expression format
+   - Common examples: "Ref($close, -1)/$close-1" (next day return), "Ref($close, -5)/$close-1" (5-day return)
+   - If no label is specified, default to "Ref($close, -1)/$close-1"
+
+Return your response as a JSON object with this exact format:
+{
+  "features": ["$close", "$volume", ...],
+  "label": "Ref($close, -1)/$close-1"
+}
+
+PAPER CONTENT:

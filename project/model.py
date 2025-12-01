@@ -2,117 +2,190 @@ import torch
 import torch.nn as nn
 import math
 
-class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model, n_heads, dropout=0.1):
+
+class iTransformer(nn.Module):
+    """
+    iTransformer: Inverted Transformer for Time Series Forecasting
+    
+    Paper: iTransformer: Inverted Transformers Are Effective for Time Series Forecasting (ICLR 2024)
+    
+    Key innovation: Inverts the traditional Transformer architecture by:
+    - Embedding each variate (time series) as a token (not each time step)
+    - Applying attention on variate dimension for multivariate correlations
+    - Using FFN on temporal dimension for series representations
+    """
+    def __init__(self, config):
         super().__init__()
-        assert d_model % n_heads == 0
         
-        self.d_model = d_model
-        self.n_heads = n_heads
-        self.d_k = d_model // n_heads
+        # Extract config parameters
+        self.n_variates = config['n_variates']  # Number of variates (N)
+        self.lookback_window = config['lookback_window']  # Input length (T)
+        self.pred_window = config['pred_window']  # Prediction length (S)
+        self.hidden_dim = config['hidden_dim']  # Token dimension (D)
+        self.num_layers = config['num_layers']  # Number of Transformer blocks (L)
+        self.num_heads = config['num_heads']  # Number of attention heads
+        self.ff_dim = config['ff_dim']  # Feed-forward dimension
+        self.dropout = config['dropout']
         
-        self.W_q = nn.Linear(d_model, d_model)
-        self.W_k = nn.Linear(d_model, d_model)
-        self.W_v = nn.Linear(d_model, d_model)
-        self.W_o = nn.Linear(d_model, d_model)
+        # Embedding: project each time series from T -> D
+        self.embedding = nn.Linear(self.lookback_window, self.hidden_dim)
         
-        self.dropout = nn.Dropout(dropout)
+        # Transformer blocks
+        self.transformer_blocks = nn.ModuleList([
+            TransformerBlock(
+                hidden_dim=self.hidden_dim,
+                num_heads=self.num_heads,
+                ff_dim=self.ff_dim,
+                dropout=self.dropout
+            )
+            for _ in range(self.num_layers)
+        ])
         
+        # Projection: project from D -> S for each variate
+        self.projection = nn.Linear(self.hidden_dim, self.pred_window)
+    
     def forward(self, x):
-        batch_size, n_tokens, d_model = x.shape
+        """
+        Args:
+            x: Input tensor of shape (batch_size, lookback_window, n_variates)
+               In traditional format: (B, T, N)
         
-        Q = self.W_q(x).view(batch_size, n_tokens, self.n_heads, self.d_k).transpose(1, 2)
-        K = self.W_k(x).view(batch_size, n_tokens, self.n_heads, self.d_k).transpose(1, 2)
-        V = self.W_v(x).view(batch_size, n_tokens, self.n_heads, self.d_k).transpose(1, 2)
+        Returns:
+            predictions: Tensor of shape (batch_size, pred_window, n_variates)
+                        In traditional format: (B, S, N)
+        """
+        # Input shape: (B, T, N)
+        batch_size = x.shape[0]
         
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.d_k)
-        attn = torch.softmax(scores, dim=-1)
-        attn = self.dropout(attn)
+        # Step 1: Transpose to (B, N, T) - treat each variate as a token
+        x = x.transpose(1, 2)  # (B, N, T)
         
-        out = torch.matmul(attn, V)
-        out = out.transpose(1, 2).contiguous().view(batch_size, n_tokens, d_model)
-        out = self.W_o(out)
+        # Step 2: Embed each variate token from T -> D
+        # Shape: (B, N, T) -> (B, N, D)
+        h = self.embedding(x)  # (B, N, D)
+        
+        # Step 3: Apply Transformer blocks
+        # Attention operates on N dimension (variate tokens)
+        # FFN operates on D dimension (series representations)
+        for block in self.transformer_blocks:
+            h = block(h)  # (B, N, D)
+        
+        # Step 4: Project each token from D -> S
+        # Shape: (B, N, D) -> (B, N, S)
+        out = self.projection(h)  # (B, N, S)
+        
+        # Step 5: Transpose back to (B, S, N)
+        out = out.transpose(1, 2)  # (B, S, N)
         
         return out
 
-class FeedForward(nn.Module):
-    def __init__(self, d_model, d_ff, dropout=0.1):
-        super().__init__()
-        self.linear1 = nn.Linear(d_model, d_ff)
-        self.linear2 = nn.Linear(d_ff, d_model)
-        self.dropout = nn.Dropout(dropout)
-        self.activation = nn.GELU()
-        
-    def forward(self, x):
-        return self.linear2(self.dropout(self.activation(self.linear1(x))))
 
-class iTransformerBlock(nn.Module):
-    def __init__(self, d_model, n_heads, d_ff, dropout=0.1):
+class TransformerBlock(nn.Module):
+    """
+    Single Transformer block with:
+    - Layer normalization
+    - Multi-head self-attention (on variate dimension)
+    - Feed-forward network (on representation dimension)
+    """
+    def __init__(self, hidden_dim, num_heads, ff_dim, dropout):
         super().__init__()
-        self.attention = MultiHeadAttention(d_model, n_heads, dropout)
-        self.ffn = FeedForward(d_model, d_ff, dropout)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.dropout = nn.Dropout(dropout)
         
+        # Layer norm (applied on temporal/feature dimension)
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.norm2 = nn.LayerNorm(hidden_dim)
+        
+        # Multi-head attention (applied on variate dimension)
+        self.attention = nn.MultiheadAttention(
+            embed_dim=hidden_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True
+        )
+        
+        # Feed-forward network
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_dim, ff_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(ff_dim, hidden_dim),
+            nn.Dropout(dropout)
+        )
+    
     def forward(self, x):
-        # x shape: (batch, n_variates, d_model)
-        # Attention over variate tokens
-        attn_out = self.attention(x)
-        x = self.norm1(x + self.dropout(attn_out))
+        """
+        Args:
+            x: Tensor of shape (B, N, D)
+               B = batch size
+               N = number of variates (tokens)
+               D = hidden dimension
         
-        # Feed-forward for series representations
+        Returns:
+            Tensor of shape (B, N, D)
+        """
+        # Self-attention with residual connection
+        # Attention operates on N dimension (captures multivariate correlations)
+        attn_out, _ = self.attention(x, x, x)
+        x = self.norm1(x + attn_out)
+        
+        # Feed-forward with residual connection
+        # FFN operates on D dimension (learns series representations)
         ffn_out = self.ffn(x)
-        x = self.norm2(x + self.dropout(ffn_out))
+        x = self.norm2(x + ffn_out)
         
         return x
 
-class Stockformer(nn.Module):
+
+class Model(nn.Module):
+    """
+    Wrapper class for training compatibility
+    """
     def __init__(self, config):
         super().__init__()
-        self.config = config
-        
-        # Embedding: project lookback series to token dimension
-        self.embedding = nn.Sequential(
-            nn.Linear(config.lookback_window, config.d_model),
-            nn.GELU(),
-            nn.Dropout(config.dropout)
-        )
-        
-        # Transformer blocks
-        self.blocks = nn.ModuleList([
-            iTransformerBlock(config.d_model, config.n_heads, config.d_ff, config.dropout)
-            for _ in range(config.n_layers)
-        ])
-        
-        # Projection: token representation to prediction
-        self.projection = nn.Sequential(
-            nn.Linear(config.d_model, config.d_ff),
-            nn.GELU(),
-            nn.Dropout(config.dropout),
-            nn.Linear(config.d_ff, config.pred_window)
-        )
-        
+        self.model = iTransformer(config)
+    
     def forward(self, x):
-        # x shape: (batch, lookback_window, n_variates)
-        # Invert: treat each variate as a token
-        x = x.transpose(1, 2)  # (batch, n_variates, lookback_window)
+        """
+        Args:
+            x: Input features of shape (batch_size, input_dim)
+               Where input_dim = lookback_window * n_variates (flattened)
+               Or if already shaped: (batch_size, lookback_window, n_variates)
         
-        # Embed each variate token
-        x = self.embedding(x)  # (batch, n_variates, d_model)
+        Returns:
+            Predictions of shape (batch_size, output_dim)
+            Where output_dim = pred_window * n_variates (flattened)
+        """
+        # Handle flattened input
+        if len(x.shape) == 2:
+            batch_size = x.shape[0]
+            # Reshape from (B, T*N) to (B, T, N)
+            x = x.view(batch_size, self.model.lookback_window, self.model.n_variates)
         
-        # Apply Transformer blocks
-        for block in self.blocks:
-            x = block(x)
+        # Forward through iTransformer
+        # Input: (B, T, N), Output: (B, S, N)
+        out = self.model(x)
         
-        # Project to predictions
-        x = self.projection(x)  # (batch, n_variates, pred_window)
+        # Flatten output from (B, S, N) to (B, S*N) for compatibility
+        batch_size = out.shape[0]
+        out = out.reshape(batch_size, -1)
         
-        # Transpose back to time-first format
-        x = x.transpose(1, 2)  # (batch, pred_window, n_variates)
-        
-        return x
+        return out
 
-def compute_loss(pred, target):
-    # MSE loss for regression
-    return nn.functional.mse_loss(pred, target)
+
+def compute_loss(predictions, targets):
+    """
+    Compute MSE loss for time series forecasting
+    
+    Args:
+        predictions: Tensor of shape (batch_size, pred_window * n_variates)
+        targets: Tensor of shape (batch_size, 1) or (batch_size, pred_window * n_variates)
+    
+    Returns:
+        MSE loss
+    """
+    # Handle different target shapes
+    if targets.shape[1] == 1:
+        # If target is single value, compare with first prediction
+        predictions = predictions[:, 0:1]
+    
+    criterion = nn.MSELoss()
+    return criterion(predictions, targets)

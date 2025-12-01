@@ -1,28 +1,79 @@
-import torch
+import json
+import os
 
-class ModelConfig:
+
+# --------------------------
+# Utility: load JSON
+# --------------------------
+def load_json(path):
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Config file not found: {path}")
+    with open(path, "r") as f:
+        return json.load(f)
+
+
+# --------------------------
+# Strict schema check
+# default_config defines the schema
+# paper_config must have identical structure
+# --------------------------
+def check_schema(default_section, paper_section, prefix=""):
+    for key in default_section:
+        if key not in paper_section:
+            raise ValueError(f"Missing key in paper_config: {prefix}{key}")
+
+        # nested dict recursion
+        if isinstance(default_section[key], dict):
+            if not isinstance(paper_section[key], dict):
+                raise ValueError(
+                    f"Key '{prefix}{key}' must be an object/dict in paper_config"
+                )
+            check_schema(default_section[key], paper_section[key], prefix + key + ".")
+
+
+# --------------------------
+# Merge: paper overrides default
+# --------------------------
+def merge_dict(default, override):
+    result = {}
+    for key, val in default.items():
+        if isinstance(val, dict):
+            result[key] = merge_dict(val, override[key])
+        else:
+            result[key] = override[key]
+    return result
+
+
+# --------------------------
+# FinalConfig for train.py
+# --------------------------
+class FinalConfig:
     def __init__(self):
-        # Model architecture
-        self.d_model = 512
-        self.n_heads = 8
-        self.n_layers = 4
-        self.d_ff = 2048
-        self.dropout = 0.1
-        
-        # Data dimensions
-        self.n_variates = 158  # Alpha158 features
-        self.lookback_window = 96
-        self.pred_window = 1
-        
-class TrainConfig:
-    def __init__(self):
-        # Training hyperparameters
-        self.batch_size = 1024
-        self.learning_rate = 1e-4
-        self.num_epochs = 1 
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        
-        # Data paths
-        self.data_root = 'project/data/cn_data'
-        self.start_date = '2010-01-01'
-        self.end_date = '2020-12-31'
+        default_cfg = load_json("config_default.json")
+        paper_cfg = load_json("config_paper.json")
+
+        # 1. Verify top-level fields
+        for section in ["model", "train", "data"]:
+            if section not in paper_cfg:
+                raise ValueError(f"Missing top-level section in paper_config: {section}")
+
+        # 2. Strict schema validation (structure must match)
+        for section in ["model", "train", "data"]:
+            check_schema(default_cfg[section], paper_cfg[section], prefix=section + ".")
+
+        # 3. Merge (paper overrides default)
+        final_cfg = {}
+        for section in ["model", "train", "data"]:
+            final_cfg[section] = merge_dict(default_cfg[section], paper_cfg[section])
+
+        # 4. Expose to train.py
+        self.model = final_cfg["model"]
+        self.train = final_cfg["train"]
+        self.data = final_cfg["data"]
+
+    def as_dict(self):
+        return {
+            "model": self.model,
+            "train": self.train,
+            "data": self.data
+        }

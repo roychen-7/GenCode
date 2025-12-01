@@ -1,0 +1,32 @@
+{
+  "model": {
+    "type": "transformer",
+    "input_dim": 158,
+    "output_dim": 1,
+
+    "hidden_dim": 128,
+    "num_layers": 3,
+    "num_heads": 4,
+    "ff_dim": 256,
+    "dropout": 0.1,
+
+    "lookback_window": 20,
+    "pred_window": 1,
+    "n_variates": 158
+  },
+
+  "train": {
+    "batch_size": 1024,
+    "learning_rate": 0.0005,
+    "optimizer": "adam",
+    "weight_decay": 0.0,
+    "num_epochs": 20
+  },
+
+  "data": {
+    "features": ["$close"],
+    "label": "Ref($close, -1)/$close-1",
+    "start_date": "2020-01-01",
+    "end_date": "2020-12-31"
+  }
+}
