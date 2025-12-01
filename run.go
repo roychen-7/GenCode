@@ -80,7 +80,7 @@ func collectFiles() (map[string]string, error) {
 // ----- RUN TRAIN.PY --FAST -----
 
 func runFastTrain() (int, string) {
-	cmd := exec.Command("python3", "project/train.py", "--test")
+	cmd := exec.Command("project/venv/bin/python3", "project/train.py", "--test")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

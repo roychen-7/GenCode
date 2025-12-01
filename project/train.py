@@ -86,6 +86,8 @@ def main():
         lookback_window=model_cfg["lookback_window"]
     )
 
+    print(model_cfg)
+
     # Initialize model
     print("Initializing model...")
     model = Model(model_cfg).to(device)

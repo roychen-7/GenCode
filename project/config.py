@@ -20,7 +20,7 @@ def load_json(path):
 def check_schema(default_section, paper_section, prefix=""):
     for key in default_section:
         if key not in paper_section:
-            raise ValueError(f"Missing key in paper_config: {prefix}{key}")
+            continue
 
         # nested dict recursion
         if isinstance(default_section[key], dict):
@@ -33,14 +33,24 @@ def check_schema(default_section, paper_section, prefix=""):
 
 # --------------------------
 # Merge: paper overrides default
+# If key exists in paper but not in default, add it
 # --------------------------
 def merge_dict(default, override):
     result = {}
+    # First, process all keys from default
     for key, val in default.items():
-        if isinstance(val, dict):
+        if key not in override:
+            result[key] = val
+        elif isinstance(val, dict):
             result[key] = merge_dict(val, override[key])
         else:
             result[key] = override[key]
+
+    # Then, add any keys from override that are not in default
+    for key, val in override.items():
+        if key not in default:
+            result[key] = val
+
     return result
 
 

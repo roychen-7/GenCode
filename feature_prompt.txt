@@ -4,7 +4,7 @@ Please read the paper.md content and extract:
 1. **Features**: What features should be used for the model?
    - If the paper mentions specific features or feature engineering methods, extract them as a list like ["$close", "$volume", "$open", ...]
    - If the paper uses alpha158 or similar factor libraries, return "Alpha158"
-   - If no features are specified, default to "Alpha158"
+   - If no features are specified, default to ["$close"]
 
 2. **Label**: What is the prediction target (label)?
    - If the paper mentions a specific label formula or prediction target, extract it in Qlib expression format
