@@ -1,8 +1,5 @@
 {
   "data": {
-    "features": [
-      "$close"
-    ],
     "label": "Ref($close, -1)/$close-1"
   },
   "model": {
@@ -16,7 +13,7 @@
     "type": "transformer"
   },
   "train": {
-    "batch_size": 32,
+    "batch_size": 1024,
     "learning_rate": 0.0005,
     "num_epochs": 10,
     "optimizer": "adam"

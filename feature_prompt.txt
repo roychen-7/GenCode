@@ -15,7 +15,7 @@ Please read the paper.md content and extract:
    - Features: What features should be used?
      * If specific features mentioned: ["$close", "$volume", "$open", ...]
      * If alpha158 or similar: "Alpha158"
-     * Default: ["$close"]
+     * Default: "Alpha158"
    - Label: Prediction target in Qlib format
      * Examples: "Ref($close, -1)/$close-1" (next day return)
      * Default: "Ref($close, -1)/$close-1"
@@ -44,7 +44,7 @@ Return your response as a JSON object with the same structure as this example:
     "num_epochs": 20
   },
   "data": {
-    "features": ["$close"],
+    "features": "Alpha158",
     "label": "Ref($close, -1)/$close-1",
     "start_date": "2020-01-01",
     "end_date": "2020-12-31"
