@@ -94,9 +94,6 @@ paper/*.log
 paper/*.out
 paper/*.toc
 
-# Keep the actual markdown
-!paper/paper.md
-
 # ============================================
 # Editors / IDEs
 # ============================================
