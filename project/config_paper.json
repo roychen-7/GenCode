@@ -1,21 +1,10 @@
 {
-  "data": {
-    "label": "Ref($close, -1)/$close-1"
-  },
   "model": {
-    "dropout": 0.1,
-    "hidden_dim": 512,
-    "input_dim": 1,
-    "lookback_window": 96,
-    "num_layers": 3,
-    "output_dim": 1,
-    "pred_window": 96,
-    "type": "transformer"
+
   },
   "train": {
-    "batch_size": 1024,
-    "learning_rate": 0.0005,
-    "num_epochs": 10,
-    "optimizer": "adam"
+
+  },
+  "data": {
   }
 }

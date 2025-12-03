@@ -55,7 +55,7 @@ def merge_dict(default, override):
 
 
 # --------------------------
-# FinalConfig for train.py
+# FinalConfig for main.py
 # --------------------------
 class FinalConfig:
     def __init__(self):
@@ -78,7 +78,7 @@ class FinalConfig:
         for section in ["model", "train", "data"]:
             final_cfg[section] = merge_dict(default_cfg[section], paper_cfg[section])
 
-        # 4. Expose to train.py
+        # 4. Expose to main.py
         self.model = final_cfg["model"]
         self.train = final_cfg["train"]
         self.data = final_cfg["data"]

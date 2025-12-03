@@ -4,8 +4,6 @@ import numpy as np
 import os
 import qlib
 from qlib.data import D
-from qlib.data.dataset import DatasetH
-
 
 class QlibDataset(Dataset):
     def __init__(self, instruments, start_date, end_date,
@@ -19,29 +17,57 @@ class QlibDataset(Dataset):
             end_time=end_date,
         )
 
-        # fields 顺序: [feature1, feature2, ..., label]
         raw = handler.groupby("instrument")
 
         X_list, y_list = [], []
 
         for inst, df in raw:
             df = df.dropna()
-
             values = df.values  # numpy array
             num_features = len(features)
 
-            # 2. 遍历每个股票序列
+            # ----------------------
+            # 先收集所有 X_window 原始特征
+            # ----------------------
             for i in range(len(values) - lookback_window - 1):
-                # 输入窗口
                 x_window = values[i:i+lookback_window, :num_features]
-                # label 是窗口后的第1天
                 y = values[i+lookback_window, num_features]
-
                 X_list.append(x_window)
                 y_list.append(y)
 
-        self.X = torch.tensor(np.array(X_list), dtype=torch.float32)
-        self.y = torch.tensor(np.array(y_list), dtype=torch.float32).unsqueeze(-1)
+        # ----------------------
+        # 转成 numpy
+        # X shape: (N, T, F)
+        # y shape: (N,)
+        # ----------------------
+        X = np.array(X_list, dtype=np.float32)
+        y = np.array(y_list, dtype=np.float32).reshape(-1, 1)
+
+        # ----------------------
+        # ⭐ 重点：对 X 做标准化 (全局 mean/std)
+        # 计算方式：对所有样本的所有时间步的每个 feature 计算 mean/std
+        # ----------------------
+        # X reshape: (N*T, F)
+        X_2d = X.reshape(-1, X.shape[-1])
+
+        mean = X_2d.mean(axis=0, keepdims=True)            # (1, F)
+        std = X_2d.std(axis=0, keepdims=True) + 1e-8       # (1, F)
+
+        # 标准化
+        X_norm = (X_2d - mean) / std
+
+        # reshape 回 (N, T, F)
+        X_norm = X_norm.reshape(X.shape)
+
+        # ----------------------
+        # 转成 tensor 作为最终数据
+        # ----------------------
+        self.X = torch.tensor(X_norm, dtype=torch.float32)
+        self.y = torch.tensor(y, dtype=torch.float32)
+
+        # 可选：保存 mean/std 用于预测还原
+        self.mean = torch.tensor(mean, dtype=torch.float32)
+        self.std = torch.tensor(std, dtype=torch.float32)
 
     def __len__(self):
         return len(self.X)
@@ -54,7 +80,7 @@ def load_full_dataset(
     instruments="csi300",
     start_date="2020-01-01",
     end_date="2020-12-31",
-    features=["$close"],
+    features=["$open", "$high", "$low", "$close", "$volume", "$factor"],
     label="Ref($close, -1)/$close-1",
     batch_size=1024,
     shuffle=True,

@@ -1,20 +1,17 @@
 {
   "model": {
     "type": "transformer",
-    "input_dim": 158,
+    "input_dim": 6,
     "output_dim": 1,
-
     "hidden_dim": 128,
     "num_layers": 3,
     "num_heads": 4,
     "ff_dim": 256,
     "dropout": 0.1,
-
     "lookback_window": 20,
     "pred_window": 1,
-    "n_variates": 158
+    "n_variates": 6
   },
-
   "train": {
     "batch_size": 1024,
     "learning_rate": 0.0005,
@@ -22,9 +19,8 @@
     "weight_decay": 0.0,
     "num_epochs": 20
   },
-
   "data": {
-    "features": "Alpha158",
+    "features": ["$open", "$high", "$low", "$close", "$volume", "$factor"],
     "label": "Ref($close, -1)/$close-1",
     "start_date": "2020-01-01",
     "end_date": "2020-12-31"

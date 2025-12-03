@@ -1,0 +1,47 @@
+{
+    "model_name": "Model",
+    "num_params": 61807,
+    "epochs": 1,
+    "final_loss": 0.009382647213539584,
+    "best_loss": 0.009382647213539584,
+    "best_epoch": 1,
+    "device": "cpu",
+    "result_file": "result.pt",
+    "config_used": {
+        "model": {
+            "type": "transformer",
+            "input_dim": 6,
+            "output_dim": 1,
+            "hidden_dim": 128,
+            "num_layers": 3,
+            "num_heads": 4,
+            "ff_dim": 256,
+            "dropout": 0.1,
+            "lookback_window": 15,
+            "pred_window": 1,
+            "n_variates": 6,
+            "latent_dim": 10
+        },
+        "train": {
+            "batch_size": 64,
+            "learning_rate": 0.0001,
+            "optimizer": "adam",
+            "weight_decay": 0.0,
+            "num_epochs": 1,
+            "device": "cpu"
+        },
+        "data": {
+            "features": [
+                "$open",
+                "$high",
+                "$low",
+                "$close",
+                "$volume",
+                "$factor"
+            ],
+            "label": "Ref($close, -1)/$close-1",
+            "start_date": "2020-01-01",
+            "end_date": "2020-12-31"
+        }
+    }
+}
