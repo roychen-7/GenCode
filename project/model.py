@@ -10,8 +10,9 @@ class Model(nn.Module):
        
         
     def forward(self, x):
-        # TODO: Define forward pass
+        # TODO: Finish forward pass according to the paper
         return x
 
 def compute_loss(preds, labels):
-    return F.mse_loss(preds, labels)
+    # TODO: Finish the loss computation according to the paper
+    return 0.1

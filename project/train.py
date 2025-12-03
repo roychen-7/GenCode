@@ -11,8 +11,6 @@ def train_model(dataloader, device, config):
 
     model = Model(model_cfg).to(device)
     
-
-    
     optimizer = optim.Adam(
         model.parameters(),
         lr=train_cfg["learning_rate"],
