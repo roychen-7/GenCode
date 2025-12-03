@@ -1,10 +1,23 @@
 {
   "model": {
-
+    "lookback_window": 20,
+    "latent_dim": 10,
+    "hidden_dim": 128,
+    "gamma": 6.0
   },
   "train": {
-
+    "num_epochs": 40,
+    "batch_size": 1024,
+    "learning_rate": 0.0001,
+    "vae_lr": 0.0001,
+    "disc_lr": 0.0001,
+    "weight_decay": 0.0
   },
   "data": {
+    "instruments": "csi300",
+    "start_date": "2020-01-01",
+    "end_date": "2020-12-31",
+    "features": ["$close"],
+    "label": "Ref($close, -1)/$close - 1"
   }
 }

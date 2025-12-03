@@ -76,6 +76,7 @@ B. Generate train.py:
                 "device": ...
             }
 
+   - Before returning, the training results must be saved as a file named "result.pt". For example: `torch.save(model.state_dict(), "result.pt")`
    - main.py will call train_model, so this function must be complete.
 
 C. Generate config_paper.json:
