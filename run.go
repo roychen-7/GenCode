@@ -23,7 +23,7 @@ const (
 	// key          = ""
 	anthropicURL = "https://api.siray.ai/v1/messages"
 	modelName    = "anthropic/claude-sonnet-4.5"
-	key          = ""
+	key          = "sk-NkCMTCDIke3ZZiDXHQIlINgvtwwanOK6JpfCqwnWRPISv1EO"
 )
 
 // ----- DATA STRUCTURES -----
@@ -81,7 +81,7 @@ func collectFiles() (map[string]string, error) {
 // ----- RUN MAIN.PY --FAST -----
 
 func runFast() (int, string) {
-	cmd := exec.Command("project/venv/bin/python", "project/main.py", "--test")
+	cmd := exec.Command("venv/bin/python", "project/main.py", "--test")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -293,7 +293,7 @@ func applyActions(acts []PatchAction) error {
 	if reqUpdated {
 		fmt.Println("📦 requirements.txt updated. Installing dependencies...")
 
-		cmd := exec.Command("project/venv/bin/pip", "install", "-r", "project/requirements.txt")
+		cmd := exec.Command("venv/bin/pip", "install", "-r", "project/requirements.txt")
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		cmd.Stderr = &out

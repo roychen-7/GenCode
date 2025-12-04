@@ -1,8 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
-import os
-import qlib
 from qlib.data import D
 
 class QlibDataset(Dataset):
@@ -29,9 +27,9 @@ class QlibDataset(Dataset):
             # ----------------------
             # 先收集所有 X_window 原始特征
             # ----------------------
-            for i in range(len(values) - lookback_window - 1):
+            for i in range(len(values) - lookback_window):
                 x_window = values[i:i+lookback_window, :num_features]
-                y = values[i+lookback_window, num_features]
+                y = values[i+lookback_window-1, num_features]
                 X_list.append(x_window)
                 y_list.append(y)
 
@@ -40,6 +38,9 @@ class QlibDataset(Dataset):
         # X shape: (N, T, F)
         # y shape: (N,)
         # ----------------------
+        if len(X_list) == 0:
+            raise ValueError("No data samples found. Check your date range and instruments.")
+
         X = np.array(X_list, dtype=np.float32)
         y = np.array(y_list, dtype=np.float32).reshape(-1, 1)
 
@@ -61,9 +62,27 @@ class QlibDataset(Dataset):
 
         # ----------------------
         # 转成 tensor 作为最终数据
+        # Reshape to (N, T, F) -> (B, T, 1, F) where we treat each sample as a single stock
         # ----------------------
-        self.X = torch.tensor(X_norm, dtype=torch.float32)
-        self.y = torch.tensor(y, dtype=torch.float32)
+        X_norm_4d = X_norm[:, :, None, :]  # (N, T, 1, F)
+
+        # Pad features to 362 dimensions
+        F = X_norm_4d.shape[-1]
+        if F < 362:
+            padding = np.zeros((X_norm_4d.shape[0], X_norm_4d.shape[1], 1, 362 - F), dtype=np.float32)
+            X_norm_4d = np.concatenate([X_norm_4d, padding], axis=-1)
+
+        self.X = torch.tensor(X_norm_4d, dtype=torch.float32)
+
+        # Y needs to be (B, T2, N, 2) - we'll use T2=2 and add trend as 0
+        # Duplicate the y value for both prediction windows
+        y_4d = np.repeat(y[:, None, None, :], 2, axis=1)  # (N, 2, 1, 1)
+        trend = np.zeros_like(y_4d)
+        y_4d = np.concatenate([y_4d, trend], axis=-1)  # (N, 2, 1, 2)
+        self.y = torch.tensor(y_4d, dtype=torch.float32)
+
+        # Create time_slots (simple sequential indices)
+        self.time_slots = torch.arange(lookback_window).unsqueeze(0).repeat(len(self.X), 1)
 
         # 可选：保存 mean/std 用于预测还原
         self.mean = torch.tensor(mean, dtype=torch.float32)
@@ -73,33 +92,5 @@ class QlibDataset(Dataset):
         return len(self.X)
 
     def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
+        return self.X[idx], self.y[idx], self.time_slots[idx]
 
-
-def load_full_dataset(
-    instruments="csi300",
-    start_date="2020-01-01",
-    end_date="2020-12-31",
-    features=["$open", "$high", "$low", "$close", "$volume", "$factor"],
-    label="Ref($close, -1)/$close-1",
-    batch_size=1024,
-    shuffle=True,
-    lookback_window=1,
-):
-    # 1. 确保 Qlib 初始化过
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    data_path = os.path.join(script_dir, "data", "cn_data")
-    qlib.init(provider_uri=data_path, region="cn")
-
-    # 2. 生成 PyTorch dataset
-    ds = QlibDataset(
-        instruments=instruments,
-        start_date=start_date,
-        end_date=end_date,
-        features=features,
-        label=label,
-        lookback_window=lookback_window,
-    )
-
-    # 3. 返回 DataLoader
-    return DataLoader(ds, batch_size=batch_size, shuffle=shuffle)

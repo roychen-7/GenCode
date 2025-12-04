@@ -1,2 +1,4 @@
 torch
 pyqlib
+numpy
+PyWavelets
