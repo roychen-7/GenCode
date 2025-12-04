@@ -18,11 +18,12 @@ const (
 	maxIters = 10
 
 	// Your customized API settings
-	anthropicURL = "https://api.deerapi.com/v1/messages"
-	modelName    = "claude-sonnet-4-5-20250929"
+	// anthropicURL = "https://api.deerapi.com/v1/messages"
+	// modelName    = "claude-sonnet-4-5-20250929"
+	// key          = ""
+	anthropicURL = "https://api.siray.ai/v1/messages"
+	modelName    = "anthropic/claude-sonnet-4.5"
 	key          = ""
-	// anthropicURL = "https://api.siray.ai/v1/messages"
-	// modelName    = "anthropic/claude-sonnet-4.5"
 )
 
 // ----- DATA STRUCTURES -----
@@ -80,7 +81,7 @@ func collectFiles() (map[string]string, error) {
 // ----- RUN MAIN.PY --FAST -----
 
 func runFast() (int, string) {
-	cmd := exec.Command("project/venv/bin/python3", "project/main.py", "--test")
+	cmd := exec.Command("project/venv/bin/python", "project/main.py", "--test")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -292,7 +293,7 @@ func applyActions(acts []PatchAction) error {
 	if reqUpdated {
 		fmt.Println("📦 requirements.txt updated. Installing dependencies...")
 
-		cmd := exec.Command("pip3", "install", "-r", "project/requirements.txt")
+		cmd := exec.Command("project/venv/bin/pip", "install", "-r", "project/requirements.txt")
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		cmd.Stderr = &out
