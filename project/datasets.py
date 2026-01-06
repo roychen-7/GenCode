@@ -1,5 +1,5 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 import numpy as np
 from qlib.data import D
 
@@ -8,65 +8,69 @@ class QlibDataset(Dataset):
                  features, label, lookback_window):
 
         # 1. 创建 Qlib 数据 handler
+        # 注意：必须把未来 2 天的收益都拉出来
+        #   day+1: Ref($close, -1)/$close - 1
+        #   day+2: Ref($close, -2)/$close - 1
+        label_day1 = "Ref($close, -1)/$close - 1"
+        label_day2 = "Ref($close, -2)/$close - 1"
+
         handler = D.features(
             instruments=D.instruments(instruments),
-            fields=features + [label],  # 一起拉取
+            fields=features + [label_day1, label_day2],
             start_time=start_date,
             end_time=end_date,
         )
 
         raw = handler.groupby("instrument")
 
-        X_list, y_list = [], []
+        X_list, y1_list, y2_list = [], [], []
 
         for inst, df in raw:
             df = df.dropna()
             values = df.values  # numpy array
             num_features = len(features)
 
-            # ----------------------
-            # 先收集所有 X_window 原始特征
-            # ----------------------
-            for i in range(len(values) - lookback_window):
-                x_window = values[i:i+lookback_window, :num_features]
-                y = values[i+lookback_window-1, num_features]
-                X_list.append(x_window)
-                y_list.append(y)
+            # features: 0 .. num_features-1
+            # y1      : num_features
+            # y2      : num_features+1
 
-        # ----------------------
-        # 转成 numpy
-        # X shape: (N, T, F)
-        # y shape: (N,)
-        # ----------------------
+            for i in range(len(values) - lookback_window - 2):
+                # ----------------------
+                # X 过去 lookback_window 天
+                # ----------------------
+                x_window = values[i:i+lookback_window, :num_features]
+
+                # ----------------------
+                # y1 = 未来第1天收益
+                # y2 = 未来第2天收益
+                # ----------------------
+                y1 = values[i + lookback_window, num_features]
+                y2 = values[i + lookback_window + 1, num_features + 1]
+
+                X_list.append(x_window)
+                y1_list.append(y1)
+                y2_list.append(y2)
+
+        # 转 numpy
         if len(X_list) == 0:
             raise ValueError("No data samples found. Check your date range and instruments.")
 
-        X = np.array(X_list, dtype=np.float32)
-        y = np.array(y_list, dtype=np.float32).reshape(-1, 1)
+        X = np.array(X_list, dtype=np.float32)          # (N, T1, F)
+        y1 = np.array(y1_list, dtype=np.float32)        # (N,)
+        y2 = np.array(y2_list, dtype=np.float32)        # (N,)
 
         # ----------------------
-        # ⭐ 重点：对 X 做标准化 (全局 mean/std)
-        # 计算方式：对所有样本的所有时间步的每个 feature 计算 mean/std
+        # 全局标准化 X
         # ----------------------
-        # X reshape: (N*T, F)
         X_2d = X.reshape(-1, X.shape[-1])
+        mean = X_2d.mean(axis=0, keepdims=True)
+        std = X_2d.std(axis=0, keepdims=True) + 1e-8
+        X_norm = ((X_2d - mean) / std).reshape(X.shape)
 
-        mean = X_2d.mean(axis=0, keepdims=True)            # (1, F)
-        std = X_2d.std(axis=0, keepdims=True) + 1e-8       # (1, F)
+        # reshape → (B, T1, 1, F)
+        X_norm_4d = X_norm[:, :, None, :]
 
-        # 标准化
-        X_norm = (X_2d - mean) / std
-
-        # reshape 回 (N, T, F)
-        X_norm = X_norm.reshape(X.shape)
-
-        # ----------------------
-        # 转成 tensor 作为最终数据
-        # Reshape to (N, T, F) -> (B, T, 1, F) where we treat each sample as a single stock
-        # ----------------------
-        X_norm_4d = X_norm[:, :, None, :]  # (N, T, 1, F)
-
-        # Pad features to 362 dimensions
+        # pad 到 362 维
         F = X_norm_4d.shape[-1]
         if F < 362:
             padding = np.zeros((X_norm_4d.shape[0], X_norm_4d.shape[1], 1, 362 - F), dtype=np.float32)
@@ -74,17 +78,25 @@ class QlibDataset(Dataset):
 
         self.X = torch.tensor(X_norm_4d, dtype=torch.float32)
 
-        # Y needs to be (B, T2, N, 2) - we'll use T2=2 and add trend as 0
-        # Duplicate the y value for both prediction windows
-        y_4d = np.repeat(y[:, None, None, :], 2, axis=1)  # (N, 2, 1, 1)
-        trend = np.zeros_like(y_4d)
-        y_4d = np.concatenate([y_4d, trend], axis=-1)  # (N, 2, 1, 2)
+        # ----------------------
+        # ⭐构建 Stockformer 需要的 Y: (B, T2=2, N=1, 2)
+        # ----------------------
+        # (N,2) → returns for day1/day2
+        returns_2day = np.stack([y1, y2], axis=1)  # (N,2)
+
+        # 趋势标签（0/1）
+        trends_2day = (returns_2day >= 0).astype(np.int64)  # (N,2)
+
+        # reshape → (N, T2=2, 1, 2)
+        y_4d = np.stack([returns_2day, trends_2day], axis=-1)  # (N,2,2)
+        y_4d = y_4d.reshape(len(X), 2, 1, 2)
+
         self.y = torch.tensor(y_4d, dtype=torch.float32)
 
-        # Create time_slots (simple sequential indices)
+        # 简单时间槽
         self.time_slots = torch.arange(lookback_window).unsqueeze(0).repeat(len(self.X), 1)
 
-        # 可选：保存 mean/std 用于预测还原
+        # 保存 mean/std
         self.mean = torch.tensor(mean, dtype=torch.float32)
         self.std = torch.tensor(std, dtype=torch.float32)
 
@@ -93,4 +105,3 @@ class QlibDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx], self.time_slots[idx]
-

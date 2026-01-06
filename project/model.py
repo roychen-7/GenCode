@@ -27,12 +27,14 @@ class DecouplingFlowLayer(nn.Module):
     - Eq. (4): X_l = W_g g^T X_l + b_g, X_h = W_h h^T X_h + b_h (upsample and project).
 
     This implementation:
-    - Applies fixed Daubechies-4 analysis filters (dec_lo, dec_hi) on the return series
+    - Applies Daubechies-4 analysis filters (dec_lo, dec_hi) on the return series
       along the temporal dimension using Conv1d with stride 2 (downsampling).
-    - Uses corresponding synthesis filters (the same taps) via ConvTranspose1d with
-      stride 2 to upsample back to original temporal length.
-    - Concatenates upsampled low- or high-frequency return with unchanged trend and
-      360 Alpha360 factors, then applies separate linear projections Wg, Wh.
+    - Uses corresponding synthesis filters via ConvTranspose1d with stride 2 to
+      upsample back to original temporal length.
+    - ✅ g / h filters are now LEARNABLE (weights initialized from db4 but not frozen),
+      in line with the paper's "learned convolution kernels".
+    - Concatenates upsampled low- or high-frequency return with unchanged trend
+      and 360 Alpha360 factors, then applies separate linear projections Wg, Wh.
 
     Input:
         X: (B, T1, N, 362)
@@ -74,26 +76,56 @@ class DecouplingFlowLayer(nn.Module):
         k = len(dec_lo)
         self.kernel_size = k
 
-        # Analysis filters g, h (Conv1d, stride=2 for downsampling)
+        # 保存 filters 用于初始化
         self.register_buffer("g", torch.tensor(dec_lo, dtype=torch.float32).view(1, 1, k))
         self.register_buffer("h", torch.tensor(dec_hi, dtype=torch.float32).view(1, 1, k))
 
-        self.dwt_low = nn.Conv1d(1, 1, kernel_size=k, stride=2, padding=0, bias=False)
-        self.dwt_high = nn.Conv1d(1, 1, kernel_size=k, stride=2, padding=0, bias=False)
+        # --------------------------------------------------
+        # ✅ Analysis filters g, h (Conv1d, stride=2, LEARNABLE)
+        # --------------------------------------------------
+        self.dwt_low = nn.Conv1d(
+            in_channels=1,
+            out_channels=1,
+            kernel_size=k,
+            stride=2,
+            padding=0,
+            bias=True,
+        )
+        self.dwt_high = nn.Conv1d(
+            in_channels=1,
+            out_channels=1,
+            kernel_size=k,
+            stride=2,
+            padding=0,
+            bias=True,
+        )
         with torch.no_grad():
             self.dwt_low.weight.copy_(self.g)
             self.dwt_high.weight.copy_(self.h)
-        self.dwt_low.weight.requires_grad_(False)
-        self.dwt_high.weight.requires_grad_(False)
+        # 不再 requires_grad_(False)，保持可学习
 
-        # Synthesis filters g^T, h^T (ConvTranspose1d, stride=2 for upsampling)
-        self.idwt_low = nn.ConvTranspose1d(1, 1, kernel_size=k, stride=2, padding=0, bias=False)
-        self.idwt_high = nn.ConvTranspose1d(1, 1, kernel_size=k, stride=2, padding=0, bias=False)
+        # --------------------------------------------------
+        # ✅ Synthesis filters g^T, h^T (ConvTranspose1d, LEARNABLE)
+        # --------------------------------------------------
+        self.idwt_low = nn.ConvTranspose1d(
+            in_channels=1,
+            out_channels=1,
+            kernel_size=k,
+            stride=2,
+            padding=0,
+            bias=True,
+        )
+        self.idwt_high = nn.ConvTranspose1d(
+            in_channels=1,
+            out_channels=1,
+            kernel_size=k,
+            stride=2,
+            padding=0,
+            bias=True,
+        )
         with torch.no_grad():
             self.idwt_low.weight.copy_(self.g)
             self.idwt_high.weight.copy_(self.h)
-        self.idwt_low.weight.requires_grad_(False)
-        self.idwt_high.weight.requires_grad_(False)
 
         # Learnable projections Wg, Wh (+ implicit bias)
         self.proj_low = nn.Linear(self.in_feat_total, self.hidden_dim)
@@ -374,8 +406,7 @@ class DualFrequencySpatioTemporalEncoder(nn.Module):
         super().__init__()
         self.hidden_dim = int(cfg.get("hidden_dim", 128))
         self.num_heads = int(cfg.get("num_heads", 1))
-        self.num_layers = int(cfg.get("num_layers",
-                                     2))  # L in the paper
+        self.num_layers = int(cfg.get("num_layers", 2))  # L in the paper
         self.kernel_size = int(cfg.get("kernel_size", 2))  # J in Eq. (5)
         self.dropout = float(cfg.get("dropout", 0.2))
 
@@ -435,8 +466,7 @@ class DualFrequencyFusionDecoder(nn.Module):
           fused representation and low-frequency representation.
 
     Implementation:
-        - Uses a simple per-stock linear predictor from encoder features to
-          T2 future representations.
+        - Uses a 3-layer MLP predictor as in the paper's Fig. 6.
         - Applies fusion attention as per Eq. (11).
 
     Input:
@@ -456,10 +486,19 @@ class DualFrequencyFusionDecoder(nn.Module):
         self.T1 = int(cfg.get("lookback_window", 20))
         self.T2 = int(cfg.get("predict_window", 2))
 
-        # Predictors: from last encoder time step feature to T2-step representation
-        # X_enc_last: (B,N,D) -> (B,N,T2,D)
-        self.pred_low = nn.Linear(self.hidden_dim, self.T2 * self.hidden_dim)
-        self.pred_high = nn.Linear(self.hidden_dim, self.T2 * self.hidden_dim)
+        # 3-layer MLP predictor
+        def make_mlp(in_dim, hidden_dim, out_dim):
+            return nn.Sequential(
+                nn.Linear(in_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, out_dim),
+            )
+
+        # Predictors: (B,N,D) -> (B,N,T2,D)
+        self.pred_low = make_mlp(self.hidden_dim, self.hidden_dim, self.T2 * self.hidden_dim)
+        self.pred_high = make_mlp(self.hidden_dim, self.hidden_dim, self.T2 * self.hidden_dim)
 
         # Fusion attention modules
         self.attn_self = nn.MultiheadAttention(
@@ -497,7 +536,7 @@ class DualFrequencyFusionDecoder(nn.Module):
         Xl_last = X_l_enc[:, -1]  # (B,N,D)
         Xh_last = X_h_enc[:, -1]  # (B,N,D)
 
-        # Predict future representations per stock
+        # Predict future representations per stock via 3-layer MLP
         # (B,N,D) -> (B,N,T2,D)
         Yl_pred_flat = self.pred_low(Xl_last).view(B, N, self.T2, D)
         Yh_pred_flat = self.pred_high(Xh_last).view(B, N, self.T2, D)
@@ -615,9 +654,7 @@ def compute_loss(
 
     Paper:
         - Regression loss L_reg: MAE on returns and low-frequency component
-          (Eq. (13)). Here we approximate this by MAE on Y_reg and Y_lreg
-          against ground-truth returns y_t; low-frequency ground truth is
-          not available in the data so we use the same y_t for supervision.
+          (Eq. (13)). 这里用 y_true 同时监督 Y_reg 和 Y_lreg。
         - Classification loss L_cla: sum of cross-entropy for main and
           low-frequency classification outputs (Eq. (14)).
 
@@ -655,4 +692,3 @@ def compute_loss(
 
     total_loss = L_reg + lambda_cla * L_cla
     return total_loss
-

@@ -3,7 +3,7 @@ import argparse
 import json
 
 from config import FinalConfig
-from datasets import load_full_dataset
+from load_data import load_full_dataset
 from train import train_model
 
 
@@ -12,10 +12,11 @@ from train import train_model
 # --------------------------
 def get_device():
     if torch.cuda.is_available():
-        return "cuda"
+        return torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        return torch.device("mps")
     else:
-        return "cpu"
-
+        return torch.device("cpu")
 
 # --------------------------
 # Main training entry

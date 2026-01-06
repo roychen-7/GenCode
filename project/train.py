@@ -4,6 +4,7 @@ from typing import Dict, Tuple
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from datetime import datetime
 
 from model import Stockformer, compute_loss
 
@@ -162,6 +163,7 @@ def train_model(
     for epoch in range(num_epochs):
         running_loss = 0.0
         num_batches = 0
+        print(f"Start Epoch {epoch + 1} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         for batch in dataloader:
             # Unpack batch; dataset should provide panel tensors directly

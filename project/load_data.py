@@ -1,4 +1,4 @@
-from project.datasets import QlibDataset
+from datasets import QlibDataset
 from torch.utils.data import DataLoader
 import numpy as np
 import os
